@@ -1,0 +1,27 @@
+{
+  "name": "cybershield-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "CyberShield – Intelligent Network Security Monitoring & Vulnerability Assessment Platform",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm --workspace=apps/web run dev",
+    "build": "npm --workspace=apps/web run build",
+    "start": "npm --workspace=apps/web run start",
+    "lint": "npm --workspace=apps/web run lint"
+  },
+  "keywords": [
+    "cybersecurity",
+    "vulnerability-scanner",
+    "network-monitoring",
+    "soc-dashboard",
+    "react-flow",
+    "nextjs",
+    "fastapi"
+  ],
+  "author": "CyberShield Security Team",
+  "license": "UNLICENSED"
+}
