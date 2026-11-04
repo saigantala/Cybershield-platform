@@ -32,66 +32,72 @@ import { RecentFindingsTable } from "@/components/dashboard/RecentFindingsTable"
 import { RecentScansTable } from "@/components/dashboard/RecentScansTable";
 
 export default function SecurityOverviewPage() {
-  const activeScan = mockScans.find((s) => s.status === "running");
-
   const [assetStats, setAssetStats] = useState({
-    total: 248,
-    active: 186,
-    critical: 8,
-    unassessed: 14,
-    isLiveDb: false,
+    total: 0,
+    active: 0,
+    critical: 0,
+    unassessed: 0,
+    isLiveDb: true,
+    isLoading: true,
   });
 
   const [vulnStats, setVulnStats] = useState({
-    total: 42,
-    critical: 8,
-    kevCount: 4,
-    isLiveDb: false,
+    total: 0,
+    critical: 0,
+    kevCount: 0,
+    isLiveDb: true,
   });
 
   const [threatIntelStats, setThreatIntelStats] = useState({
-    totalIocs: 3,
-    highConfidence: 2,
-    activeAlerts: 2,
-    isLiveDb: false,
+    totalIocs: 0,
+    highConfidence: 0,
+    activeAlerts: 0,
+    isLiveDb: true,
   });
 
   const [incidentStats, setIncidentStats] = useState({
-    total: 1,
-    active: 1,
-    pendingApprovals: 1,
-    isLiveDb: false,
+    total: 0,
+    active: 0,
+    pendingApprovals: 0,
+    isLiveDb: true,
   });
 
+  const [lastRefreshed, setLastRefreshed] = useState<string>("");
+
   useEffect(() => {
+    let isMounted = true;
+
     async function loadLiveStats() {
       try {
         const stats = await getAssetSummaryStats();
-        if (stats.total > 0) {
+        if (isMounted) {
           setAssetStats({
-            total: stats.total,
-            active: stats.active,
-            critical: stats.critical,
-            unassessed: stats.unassessed,
+            total: stats.total ?? 0,
+            active: stats.active ?? 0,
+            critical: stats.critical ?? 0,
+            unassessed: stats.unassessed ?? 0,
             isLiveDb: true,
+            isLoading: false,
           });
         }
       } catch (e) {
-        // Fall back to sample values
+        if (isMounted) {
+          setAssetStats((prev) => ({ ...prev, isLoading: false }));
+        }
       }
 
       try {
         const vRes = await apiVulnerabilities.getOverview();
-        if (vRes.data && !vRes.error) {
+        if (isMounted && vRes.data && !vRes.error) {
           setVulnStats({
-            total: vRes.data.total_findings,
-            critical: vRes.data.critical_count,
-            kevCount: vRes.data.kev_count,
+            total: vRes.data.total_findings ?? 0,
+            critical: vRes.data.critical_count ?? 0,
+            kevCount: vRes.data.kev_count ?? 0,
             isLiveDb: true,
           });
         }
       } catch (e) {
-        // Fall back to sample values
+        // keep current
       }
 
       try {
@@ -100,22 +106,22 @@ export default function SecurityOverviewPage() {
           apiAlerts.list({ status: "New" }),
         ]);
 
-        if (tRes.data) {
-          const totalIocs = tRes.data.total_indicators;
-          const highConf = tRes.data.high_confidence_count;
+        if (isMounted && tRes.data) {
+          const totalIocs = tRes.data.total_indicators ?? 0;
+          const highConf = tRes.data.high_confidence_count ?? 0;
           setThreatIntelStats((prev) => ({
             ...prev,
-            totalIocs: totalIocs ?? prev.totalIocs,
-            highConfidence: highConf ?? prev.highConfidence,
+            totalIocs: totalIocs,
+            highConfidence: highConf,
             isLiveDb: true,
           }));
         }
 
-        if (aRes.data) {
-          const alertTotal = aRes.data.total ?? aRes.data.items?.length;
+        if (isMounted && aRes.data) {
+          const alertTotal = aRes.data.total ?? aRes.data.items?.length ?? 0;
           setThreatIntelStats((prev) => ({
             ...prev,
-            activeAlerts: alertTotal ?? prev.activeAlerts,
+            activeAlerts: alertTotal,
             isLiveDb: true,
           }));
         }
@@ -125,9 +131,9 @@ export default function SecurityOverviewPage() {
           apiResponseRequests.list(),
         ]);
 
-        if (incRes.data) {
-          const totalIncidents = incRes.data.total ?? incRes.data.items?.length ?? 1;
-          const activeIncidents = incRes.data.items?.filter((i: any) => i.status !== "Closed" && i.status !== "Resolved").length ?? 1;
+        if (isMounted && incRes.data) {
+          const totalIncidents = incRes.data.total ?? incRes.data.items?.length ?? 0;
+          const activeIncidents = incRes.data.items?.filter((i: any) => i.status !== "Closed" && i.status !== "Resolved").length ?? 0;
           setIncidentStats((prev) => ({
             ...prev,
             total: totalIncidents,
@@ -136,7 +142,7 @@ export default function SecurityOverviewPage() {
           }));
         }
 
-        if (reqRes.data) {
+        if (isMounted && reqRes.data) {
           const pending = reqRes.data.filter((r: any) => r.status === "Pending").length;
           setIncidentStats((prev) => ({
             ...prev,
@@ -144,11 +150,23 @@ export default function SecurityOverviewPage() {
             isLiveDb: true,
           }));
         }
+
+        if (isMounted) {
+          setLastRefreshed(new Date().toLocaleTimeString());
+        }
       } catch (e) {
-        // keep fallback
+        // keep current
       }
     }
+
     loadLiveStats();
+    // 8-second live telemetry refresh interval
+    const intervalId = setInterval(loadLiveStats, 8000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(intervalId);
+    };
   }, []);
 
   return (
@@ -236,12 +254,13 @@ export default function SecurityOverviewPage() {
             <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight">
               Security Operations Center
             </h1>
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30 font-semibold uppercase">
-              Live Real-Time
+            <span className="text-[10px] font-mono px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold uppercase flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-ping" />
+              Live Telemetry Active {lastRefreshed && `(${lastRefreshed})`}
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Monitor your infrastructure and security posture.
+            Monitor your infrastructure and real-time security posture.
           </p>
         </div>
 
@@ -264,33 +283,80 @@ export default function SecurityOverviewPage() {
         </div>
       </div>
 
+      {/* Real-World Quick-Start Action Card when 0 assets exist */}
+      {assetStats.total === 0 && !assetStats.isLoading && (
+        <div className="rounded-xl border border-blue-500/30 bg-gradient-to-r from-blue-950/40 via-[#0B1220] to-cyan-950/30 p-5 shadow-lg">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                  REAL ENVIRONMENT ONBOARDING
+                </span>
+                <span className="text-xs font-semibold text-slate-300">
+                  Zero Synthetic Telemetry Active
+                </span>
+              </div>
+              <h3 className="text-base font-bold text-white">
+                Begin Real Security Operations in CyberShield
+              </h3>
+              <p className="text-xs text-slate-400 max-w-2xl">
+                No simulated assets are active. Connect your real infrastructure by running an authorized network discovery sweep, deploying the lightweight endpoint monitoring agent, or synchronizing official CISA KEV and threat feeds.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <Link
+                href="/scans"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs font-semibold text-white shadow-md transition-all"
+              >
+                <Radar className="h-3.5 w-3.5" />
+                <span>Launch Discovery Scan</span>
+              </Link>
+              <Link
+                href="/monitoring-agents"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#111C2D] border border-cyan-500/40 hover:border-cyan-400 text-xs font-semibold text-cyan-300 transition-all"
+              >
+                <Cpu className="h-3.5 w-3.5" />
+                <span>Deploy Agent</span>
+              </Link>
+              <Link
+                href="/threat-intelligence"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#111C2D] border border-slate-700 hover:border-slate-500 text-xs font-semibold text-slate-300 transition-all"
+              >
+                <Radio className="h-3.5 w-3.5 text-rose-400" />
+                <span>Sync Feeds</span>
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Top 5 Metric Cards (Exact Prompt Requirements) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <MetricCard
           title="Total Assets"
           value={assetStats.total}
-          subtitle={assetStats.isLiveDb ? "Live Supabase Inventory" : "Monitored in inventory"}
+          subtitle="Monitored live inventory"
           icon={Server}
           accentColor="blue"
-          trend={{ value: assetStats.isLiveDb ? "Live DB Synced" : "+12% vs prior month", positive: true }}
+          trend={{ value: assetStats.total > 0 ? "Live DB Synced" : "Awaiting discovery", positive: true }}
         />
 
         <MetricCard
           title="Active Devices"
           value={assetStats.active}
-          subtitle={assetStats.isLiveDb ? "Online endpoints" : "Online & heartbeat active"}
+          subtitle="Online & heartbeat active"
           icon={Activity}
           accentColor="cyan"
-          trend={{ value: `${Math.round((assetStats.active / (assetStats.total || 1)) * 100)}% active`, positive: true }}
+          trend={{ value: assetStats.total > 0 ? `${Math.round((assetStats.active / assetStats.total) * 100)}% active` : "0% active", positive: true }}
         />
 
         <MetricCard
           title="Vulnerabilities"
           value={vulnStats.total}
-          subtitle={vulnStats.isLiveDb ? "Live Supabase Findings" : "Open finding catalog"}
+          subtitle="Verified finding catalog"
           icon={Bug}
           accentColor="amber"
-          trend={{ value: vulnStats.isLiveDb ? "Live DB Synced" : "-5% from last sweep", positive: true }}
+          trend={{ value: vulnStats.total > 0 ? "Live DB Synced" : "Zero open findings", positive: true }}
         />
 
         <MetricCard
@@ -299,19 +365,27 @@ export default function SecurityOverviewPage() {
           subtitle={`${vulnStats.kevCount} in CISA KEV catalog`}
           icon={AlertOctagon}
           accentColor="rose"
-          badge="Urgent"
-          trend={{ value: vulnStats.isLiveDb ? "Real-time Telemetry" : "+2 new today", positive: false }}
+          badge={vulnStats.critical > 0 ? "Urgent" : "Clear"}
+          trend={{ value: vulnStats.critical > 0 ? "Action required" : "Zero critical CVEs", positive: vulnStats.critical === 0 }}
         />
 
-        <MetricCard
-          title="Security Score"
-          value="86/100"
-          subtitle="Enterprise posture rating"
-          icon={ShieldCheck}
-          accentColor="emerald"
-          badge="Grade A"
-          trend={{ value: "+4% improvement", positive: true }}
-        />
+        {(() => {
+          const postureScore = assetStats.total === 0 
+            ? 100 
+            : Math.max(20, Math.min(100, 100 - (vulnStats.critical * 15) - (vulnStats.total * 2)));
+          const grade = postureScore >= 85 ? "Grade A" : postureScore >= 70 ? "Grade B" : postureScore >= 50 ? "Grade C" : "At Risk";
+          return (
+            <MetricCard
+              title="Security Score"
+              value={`${postureScore}/100`}
+              subtitle="Calculated live posture"
+              icon={ShieldCheck}
+              accentColor="emerald"
+              badge={grade}
+              trend={{ value: assetStats.total === 0 ? "Awaiting Assessment" : `${grade} rating`, positive: postureScore >= 70 }}
+            />
+          );
+        })()}
       </div>
 
       {/* Threat Intelligence & Active Correlation Alert Strip */}

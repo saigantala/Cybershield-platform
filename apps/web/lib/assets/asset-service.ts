@@ -148,7 +148,7 @@ export async function getAssets(params: AssetFilterParams = {}): Promise<Paginat
 
       const { data, count, error } = await query;
 
-      if (!error && data && data.length > 0) {
+      if (!error && data) {
         const totalCount = count ?? data.length;
         return {
           assets: data as AssetRecord[],
@@ -226,7 +226,7 @@ export async function getAssetSummaryStats(): Promise<AssetSummaryStats> {
         .select("status, risk_level")
         .eq("organization_id", orgId);
 
-      if (!error && allAssets && allAssets.length > 0) {
+      if (!error && allAssets) {
         return {
           total: allAssets.length,
           active: allAssets.filter((a) => a.status === "Active" || a.status === "online").length,
@@ -243,12 +243,12 @@ export async function getAssetSummaryStats(): Promise<AssetSummaryStats> {
     }
   }
 
-  // Fallback calculations
+  // Real-world default: 0 assets when none exist or unauthenticated
   return {
-    total: fallbackAssets.length,
-    active: fallbackAssets.filter((a) => a.status === "Active").length,
-    critical: fallbackAssets.filter((a) => a.risk_level === "Critical").length,
-    unassessed: fallbackAssets.filter((a) => a.risk_level === "Unassessed").length,
+    total: 0,
+    active: 0,
+    critical: 0,
+    unassessed: 0,
   };
 }
 

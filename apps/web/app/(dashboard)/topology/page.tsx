@@ -144,31 +144,50 @@ function buildTopologyFromAssets(assets: AssetRecord[]) {
 }
 
 export default function NetworkTopologyPage() {
-  const [nodes, setNodes, onNodesChange] = useNodesState(mockTopologyData.nodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(mockTopologyData.edges);
+  const [nodes, setNodes, onNodesChange] = useNodesState<any>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<any>([]);
   const [selectedNode, setSelectedNode] = useState<any>(null);
   const [searchFilter, setSearchFilter] = useState("");
   const [isLiveTopology, setIsLiveTopology] = useState(false);
+  const [rawAssetsCount, setRawAssetsCount] = useState<number>(0);
+  const [showDemo, setShowDemo] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   // Fetch real assets and construct topology
   useEffect(() => {
     async function loadTopology() {
+      setIsLoading(true);
       try {
         const res = await getAssets({ page_size: 50 });
-        if (res.assets && res.assets.length > 0) {
+        const count = res.assets?.length ?? 0;
+        setRawAssetsCount(count);
+
+        if (count > 0) {
           const generated = buildTopologyFromAssets(res.assets);
           if (generated) {
             setNodes(generated.nodes);
             setEdges(generated.edges);
             setIsLiveTopology(true);
+            setShowDemo(false);
+          }
+        } else {
+          setIsLiveTopology(false);
+          if (showDemo) {
+            setNodes(mockTopologyData.nodes);
+            setEdges(mockTopologyData.edges);
+          } else {
+            setNodes([]);
+            setEdges([]);
           }
         }
       } catch (err) {
         console.warn("Using sample topology graph fallback:", err);
+      } finally {
+        setIsLoading(false);
       }
     }
     loadTopology();
-  }, [setNodes, setEdges]);
+  }, [setNodes, setEdges, showDemo]);
 
   const onNodeClick = useCallback((event: React.MouseEvent, node: Node) => {
     setSelectedNode(node);
@@ -244,65 +263,110 @@ export default function NetworkTopologyPage() {
           <span className="text-slate-300">
             {isLiveTopology ? (
               <>
-                <strong className="text-white">Live Inventory Graph:</strong> Topology rendered from registered organizational assets and authorized discovery sweeps.
+                <strong className="text-white">Live Inventory Graph ({rawAssetsCount} assets):</strong> Topology rendered from registered organizational assets and authorized discovery sweeps.
+              </>
+            ) : showDemo ? (
+              <>
+                <strong className="text-amber-400">Sample Network Topology (Demo Mode):</strong> Illustrative device hierarchy showing Core Gateway, Routers, Linux & Windows Servers, Workstations, Mobile, and IoT.
               </>
             ) : (
               <>
-                <strong className="text-white">Sample Network Topology Graph:</strong> Illustrative device hierarchy showing Core Gateway, Routers, Linux & Windows Servers, Workstations, Mobile, and IoT.
+                <strong className="text-white">Live Topology Standby:</strong> 0 discovered endpoints. Launch an authorized subnet scan to populate your topology graph.
               </>
             )}
           </span>
         </div>
-        <span className="text-[10px] font-mono text-cyan-400 font-bold uppercase shrink-0">
-          {isLiveTopology ? "Ground Inventory" : "Demo Visualization"}
-        </span>
+        <div className="flex items-center gap-2 shrink-0">
+          {showDemo && (
+            <button
+              onClick={() => setShowDemo(false)}
+              className="text-[10px] font-mono px-2 py-1 rounded bg-slate-800 text-slate-300 border border-slate-700 hover:text-white"
+            >
+              Exit Demo
+            </button>
+          )}
+          <span className="text-[10px] font-mono text-cyan-400 font-bold uppercase">
+            {isLiveTopology ? "Ground Inventory" : showDemo ? "Demo Visualization" : "Awaiting Discovery"}
+          </span>
+        </div>
       </div>
 
       {/* Topology Canvas and Detail Panel */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         <div className="lg:col-span-3 soc-glass rounded-xl h-[650px] border border-blue-500/30 overflow-hidden relative">
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onNodeClick={onNodeClick}
-            nodeTypes={nodeTypes}
-            fitView
-          >
-            <Background color="#1E293B" gap={20} size={1} />
-            <Controls className="!bg-[#111C2D] !border-blue-500/30 !rounded-lg !text-white overflow-hidden shadow-lg" />
-            <MiniMap
-              nodeColor={(node) => {
-                switch (node.data?.risk) {
-                  case "critical":
-                    return "#FB7185";
-                  case "high":
-                    return "#F59E0B";
-                  case "medium":
-                    return "#38BDF8";
-                  default:
-                    return "#34D399";
-                }
-              }}
-              className="!bg-[#0B1220] !border !border-blue-500/20 !rounded-lg"
-            />
-          </ReactFlow>
+          {nodes.length > 0 ? (
+            <>
+              <ReactFlow
+                nodes={nodes}
+                edges={edges}
+                onNodesChange={onNodesChange}
+                onEdgesChange={onEdgesChange}
+                onNodeClick={onNodeClick}
+                nodeTypes={nodeTypes}
+                fitView
+              >
+                <Background color="#1E293B" gap={20} size={1} />
+                <Controls className="!bg-[#111C2D] !border-blue-500/30 !rounded-lg !text-white overflow-hidden shadow-lg" />
+                <MiniMap
+                  nodeColor={(node) => {
+                    switch (node.data?.risk) {
+                      case "critical":
+                        return "#FB7185";
+                      case "high":
+                        return "#F59E0B";
+                      case "medium":
+                        return "#38BDF8";
+                      default:
+                        return "#34D399";
+                    }
+                  }}
+                  className="!bg-[#0B1220] !border !border-blue-500/20 !rounded-lg"
+                />
+              </ReactFlow>
 
-          {/* Topology Legend Overlay */}
-          <div className="absolute bottom-4 left-4 p-3 rounded-lg bg-[#0B1220]/90 backdrop-blur-md border border-blue-500/20 text-[11px] space-y-1.5 z-10">
-            <span className="text-slate-400 font-bold uppercase tracking-wider block text-[10px]">
-              Connection Classification
-            </span>
-            <div className="flex items-center gap-2 text-slate-300">
-              <span className="w-5 h-0.5 bg-blue-500 inline-block" />
-              <span>Core Backbone Trunk</span>
+              {/* Topology Legend Overlay */}
+              <div className="absolute bottom-4 left-4 p-3 rounded-lg bg-[#0B1220]/90 backdrop-blur-md border border-blue-500/20 text-[11px] space-y-1.5 z-10">
+                <span className="text-slate-400 font-bold uppercase tracking-wider block text-[10px]">
+                  Connection Classification
+                </span>
+                <div className="flex items-center gap-2 text-slate-300">
+                  <span className="w-5 h-0.5 bg-blue-500 inline-block" />
+                  <span>Core Backbone Trunk</span>
+                </div>
+                <div className="flex items-center gap-2 text-slate-300">
+                  <span className="w-5 h-0.5 border-t border-dashed border-cyan-400 inline-block" />
+                  <span>Discovered Network Endpoint</span>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="h-full w-full flex flex-col items-center justify-center p-8 text-center bg-[#080D18]/90">
+              <div className="h-16 w-16 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 mb-4">
+                <Network className="h-8 w-8 animate-pulse" />
+              </div>
+              <h3 className="text-lg font-bold text-white mb-2">
+                No Network Assets Discovered
+              </h3>
+              <p className="text-xs text-slate-400 max-w-md mb-6">
+                Your topology diagram generates dynamically as real endpoints and subnets are discovered via network scans or endpoint agent enrollment.
+              </p>
+              <div className="flex flex-wrap items-center justify-center gap-3">
+                <a
+                  href="/scans"
+                  className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs font-semibold text-white shadow-lg shadow-blue-600/30 transition-all flex items-center gap-2"
+                >
+                  <Radar className="h-4 w-4" />
+                  <span>Run Subnet Discovery Scan</span>
+                </a>
+                <button
+                  onClick={() => setShowDemo(true)}
+                  className="px-4 py-2 rounded-lg bg-[#111C2D] border border-cyan-500/40 hover:border-cyan-400 text-xs font-semibold text-cyan-300 transition-all"
+                >
+                  Preview Sample Topology
+                </button>
+              </div>
             </div>
-            <div className="flex items-center gap-2 text-slate-300">
-              <span className="w-5 h-0.5 border-t border-dashed border-cyan-400 inline-block" />
-              <span>Discovered Network Endpoint</span>
-            </div>
-          </div>
+          )}
         </div>
 
         {/* Node Inspector Side Panel */}

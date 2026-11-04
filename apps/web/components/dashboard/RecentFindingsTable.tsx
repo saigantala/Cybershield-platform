@@ -23,12 +23,13 @@ interface FindingItem {
 export function RecentFindingsTable() {
   const [items, setItems] = useState<FindingItem[]>([]);
   const [isLive, setIsLive] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     async function loadFindings() {
       try {
         const res = await apiVulnerabilities.listFindings({ page_size: 5 });
-        if (res.data && res.data.items && res.data.items.length > 0) {
+        if (res.data && res.data.items) {
           const mapped: FindingItem[] = res.data.items.map((f: any) => ({
             id: f.id,
             title: f.title,
@@ -36,34 +37,22 @@ export function RecentFindingsTable() {
             cveId: f.cve_id,
             assetName: f.asset_name || "Host",
             assetIp: f.asset_ip || "192.168.10.1",
-            severity: f.severity.toLowerCase(),
+            severity: (f.severity || "medium").toLowerCase(),
             cvssScore: Number(f.cvss_score || 0),
-            status: f.status.toLowerCase(),
+            status: (f.status || "open").toLowerCase(),
             isKev: Boolean(f.is_kev),
           }));
           setItems(mapped);
           setIsLive(true);
+          setIsLoading(false);
           return;
         }
       } catch (e) {
-        // Fall back to sample
+        // Fall back gracefully
       }
-
-      // Default sample fallback
-      const sampleMapped: FindingItem[] = mockFindings.slice(0, 5).map((f) => ({
-        id: f.id,
-        title: f.title,
-        service: f.service,
-        cveId: f.cveId,
-        assetName: f.assetName,
-        assetIp: f.assetIp,
-        severity: f.severity,
-        cvssScore: f.cvssScore,
-        status: f.status,
-        isKev: f.cisaKev,
-      }));
-      setItems(sampleMapped);
-      setIsLive(false);
+      setItems([]);
+      setIsLive(true);
+      setIsLoading(false);
     }
 
     loadFindings();
@@ -115,81 +104,91 @@ export function RecentFindingsTable() {
         </div>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full text-left text-xs">
-          <thead>
-            <tr className="border-b border-slate-800 text-slate-400 uppercase font-mono text-[10px]">
-              <th className="py-2.5 px-3">Vulnerability Name</th>
-              <th className="py-2.5 px-3">CVE ID</th>
-              <th className="py-2.5 px-3">Affected Asset</th>
-              <th className="py-2.5 px-3">Severity / CVSS</th>
-              <th className="py-2.5 px-3 text-right">Status</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-800/60 font-medium">
-            {items.map((f) => (
-              <tr key={f.id} className="hover:bg-[#162338]/50 transition-colors">
-                <td className="py-3 px-3">
-                  <div className="flex flex-col">
-                    <span className="text-white font-semibold flex items-center gap-1.5">
-                      <span className="truncate max-w-xs">{f.title}</span>
-                    </span>
-                    <span className="text-slate-400 text-[11px] truncate max-w-sm">
-                      {f.service || "System Service"}
-                    </span>
-                  </div>
-                </td>
+      {items.length === 0 ? (
+        <div className="py-10 text-center flex flex-col items-center justify-center">
+          <ShieldAlert className="h-8 w-8 text-slate-500 mb-2 opacity-50" />
+          <p className="text-xs font-semibold text-slate-300">No Vulnerabilities Detected</p>
+          <p className="text-[11px] text-slate-500 mt-1 max-w-sm">
+            No unmitigated vulnerabilities found in your environment. Run an automated discovery or vulnerability scan to evaluate asset posture.
+          </p>
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead>
+              <tr className="border-b border-slate-800 text-slate-400 uppercase font-mono text-[10px]">
+                <th className="py-2.5 px-3">Vulnerability Name</th>
+                <th className="py-2.5 px-3">CVE ID</th>
+                <th className="py-2.5 px-3">Affected Asset</th>
+                <th className="py-2.5 px-3">Severity / CVSS</th>
+                <th className="py-2.5 px-3 text-right">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/60 font-medium">
+              {items.map((f) => (
+                <tr key={f.id} className="hover:bg-[#162338]/50 transition-colors">
+                  <td className="py-3 px-3">
+                    <div className="flex flex-col">
+                      <span className="text-white font-semibold flex items-center gap-1.5">
+                        <span className="truncate max-w-xs">{f.title}</span>
+                      </span>
+                      <span className="text-slate-400 text-[11px] truncate max-w-sm">
+                        {f.service || "System Service"}
+                      </span>
+                    </div>
+                  </td>
 
-                <td className="py-3 px-3">
-                  {f.cveId ? (
-                    <span className="font-mono text-cyan-400 font-bold text-[11px] px-1.5 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/20">
-                      {f.cveId}
-                    </span>
-                  ) : (
-                    <span className="text-slate-500 text-[11px] font-mono">N/A</span>
-                  )}
-                </td>
+                  <td className="py-3 px-3">
+                    {f.cveId ? (
+                      <span className="font-mono text-cyan-400 font-bold text-[11px] px-1.5 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/20">
+                        {f.cveId}
+                      </span>
+                    ) : (
+                      <span className="text-slate-500 text-[11px] font-mono">N/A</span>
+                    )}
+                  </td>
 
-                <td className="py-3 px-3">
-                  <div className="flex flex-col">
-                    <span className="text-slate-200 font-mono text-[11px]">
-                      {f.assetIp}
-                    </span>
-                    <span className="text-slate-400 text-[10px] truncate max-w-[140px]">
-                      {f.assetName}
-                    </span>
-                  </div>
-                </td>
+                  <td className="py-3 px-3">
+                    <div className="flex flex-col">
+                      <span className="text-slate-200 font-mono text-[11px]">
+                        {f.assetIp}
+                      </span>
+                      <span className="text-slate-400 text-[10px] truncate max-w-[140px]">
+                        {f.assetName}
+                      </span>
+                    </div>
+                  </td>
 
-                <td className="py-3 px-3">
-                  <div className="flex items-center gap-2">
+                  <td className="py-3 px-3">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold border ${getSeverityColor(
+                          f.severity as any
+                        )}`}
+                      >
+                        {f.severity}
+                      </span>
+                      <span className="font-mono font-bold text-white text-xs">
+                        {f.cvssScore.toFixed(1)}
+                      </span>
+                    </div>
+                  </td>
+
+                  <td className="py-3 px-3 text-right">
                     <span
-                      className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold border ${getSeverityColor(
-                        f.severity as any
+                      className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold border ${getStatusBadge(
+                        f.status as any
                       )}`}
                     >
-                      {f.severity}
+                      {f.status.replace("_", " ")}
                     </span>
-                    <span className="font-mono font-bold text-white text-xs">
-                      {f.cvssScore.toFixed(1)}
-                    </span>
-                  </div>
-                </td>
-
-                <td className="py-3 px-3 text-right">
-                  <span
-                    className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold border ${getStatusBadge(
-                      f.status as any
-                    )}`}
-                  >
-                    {f.status.replace("_", " ")}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

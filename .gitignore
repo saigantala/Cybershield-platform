@@ -21,11 +21,12 @@ __pycache__/
 .coverage
 htmlcov/
 
-# Local Environment Variables
+# Local Environment Variables & Agent Secrets
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
+.agent_config.json
 
 # OS & Editor
 .DS_Store

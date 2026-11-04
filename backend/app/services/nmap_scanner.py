@@ -1,11 +1,14 @@
 import asyncio
 import logging
 import os
+import re
 import shutil
+import socket
+import subprocess
 import xml.etree.ElementTree as ET
 from datetime import datetime
-from ipaddress import ip_network
-from typing import Any, Callable, Dict, List, Optional
+from ipaddress import ip_network, ip_address
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from uuid import UUID
 
 from app.services.device_classifier import DeviceClassifier
@@ -19,6 +22,7 @@ class NmapDiscoveryEngine:
     Authorized Network Discovery Engine.
     Executes constrained, non-evasive network sweeps against approved RFC 1918 scopes.
     Strictly prohibits arbitrary user flags and never invokes shell=True.
+    Falls back to native asynchronous TCP connect & ARP discovery when Nmap binary is absent.
     """
 
     SAFE_DISCOVERY_ARGS = [
@@ -30,6 +34,30 @@ class NmapDiscoveryEngine:
         "--max-retries", "2",# Fast fail on non-responsive ports
         "--host-timeout", "3m",
         "-oX", "-",          # Stream XML to stdout
+    ]
+
+    COMMON_PROBE_PORTS = [
+        (21, "ftp"),
+        (22, "ssh"),
+        (23, "telnet"),
+        (25, "smtp"),
+        (53, "dns"),
+        (80, "http"),
+        (110, "pop3"),
+        (135, "msrpc"),
+        (139, "netbios-ssn"),
+        (443, "https"),
+        (445, "microsoft-ds"),
+        (1433, "ms-sql-s"),
+        (3000, "http-nextjs"),
+        (3306, "mysql"),
+        (3389, "ms-wbt-server"),
+        (5432, "postgresql"),
+        (6379, "redis"),
+        (8000, "http-fastapi"),
+        (8080, "http-proxy"),
+        (8443, "https-alt"),
+        (9000, "cs-mgmt"),
     ]
 
     def __init__(self):
@@ -62,10 +90,10 @@ class NmapDiscoveryEngine:
                 if result:
                     return result
             except Exception as e:
-                logger.warning(f"Native nmap execution encountered error: {e}. Falling back to safe engine.")
+                logger.warning(f"Native nmap execution encountered error: {e}. Falling back to native socket engine.")
 
-        # Safe Simulated Discovery for environments where Nmap binary is absent
-        return await self._run_simulated_discovery(
+        # Real Native Async Socket & ARP Discovery Engine for environments where Nmap binary is absent
+        return await self._run_native_socket_discovery(
             scan_id, target_cidr, event_callback, is_cancelled_check
         )
 
@@ -216,7 +244,140 @@ class NmapDiscoveryEngine:
             logs=[f"Nmap parsed {len(discovered_hosts)} responsive endpoints."],
         )
 
-    async def _run_simulated_discovery(
+    def _sync_probe_port(self, ip: str, port: int, service_name: str, timeout: float = 0.12) -> Optional[DiscoveredService]:
+        """Probes a single TCP port synchronously with strict timeout, avoiding Windows IOCP hanging."""
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(timeout)
+        try:
+            res = s.connect_ex((ip, port))
+            if res != 0:
+                s.close()
+                return None
+
+            product = None
+            version = None
+            try:
+                if port in (80, 443, 3000, 8000, 8080, 8443):
+                    s.sendall(b"HEAD / HTTP/1.0\r\nHost: " + ip.encode() + b"\r\n\r\n")
+                    raw = s.recv(512)
+                    header_text = raw.decode("utf-8", errors="ignore")
+                    for line in header_text.splitlines():
+                        if line.lower().startswith("server:"):
+                            product = line.split(":", 1)[1].strip()
+                            break
+                    if not product:
+                        if port == 3000:
+                            product = "Next.js Dev Server"
+                        elif port == 8000:
+                            product = "FastAPI / Uvicorn Server"
+                        else:
+                            product = "HTTP Web Service"
+                elif port == 22:
+                    raw = s.recv(256)
+                    banner = raw.decode("utf-8", errors="ignore").strip()
+                    if banner:
+                        product = banner
+                elif port == 5432:
+                    product = "PostgreSQL Server"
+                elif port == 6379:
+                    product = "Redis In-Memory Store"
+            except Exception:
+                pass
+            finally:
+                try:
+                    s.close()
+                except Exception:
+                    pass
+
+            return DiscoveredService(
+                port=port,
+                protocol="tcp",
+                name=service_name,
+                product=product or service_name,
+                version=version,
+                state="open",
+            )
+        except Exception:
+            try:
+                s.close()
+            except Exception:
+                pass
+            return None
+
+    async def _probe_single_port(self, ip: str, port: int, service_name: str, timeout: float = 0.12) -> Optional[DiscoveredService]:
+        """Asynchronously dispatches socket probe to thread pool."""
+        return await asyncio.to_thread(self._sync_probe_port, ip, port, service_name, timeout)
+
+    def _get_arp_table(self) -> Dict[str, str]:
+        """Extracts local IPv4 to MAC mappings from system ARP table."""
+        arp_map: Dict[str, str] = {}
+        try:
+            output = subprocess.check_output(["arp", "-a"], text=True, stderr=subprocess.DEVNULL)
+            for line in output.splitlines():
+                match = re.search(r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s+([0-9a-fA-F:-]{11,17})", line)
+                if match:
+                    ip = match.group(1)
+                    mac = match.group(2).replace("-", ":").lower()
+                    arp_map[ip] = mac
+        except Exception as e:
+            logger.debug(f"ARP table lookup skipped: {e}")
+        return arp_map
+
+    async def _probe_host(
+        self,
+        target_ip: str,
+        arp_map: Dict[str, str],
+        is_active_hint: bool,
+    ) -> Optional[DiscoveredHost]:
+        """Probes an individual host across common ports with fast failover."""
+        # For non-active hints (not in ARP table, not loopback), test sentinel ports first
+        if not is_active_hint:
+            test_port = await self._probe_single_port(target_ip, 80, "http", timeout=0.1)
+            if not test_port:
+                test_port_2 = await self._probe_single_port(target_ip, 443, "https", timeout=0.1)
+                if not test_port_2:
+                    return None
+
+        port_tasks = [
+            self._probe_single_port(target_ip, port, name, timeout=0.25)
+            for port, name in self.COMMON_PROBE_PORTS
+        ]
+        port_results = await asyncio.gather(*port_tasks)
+        open_services = [s for s in port_results if s is not None]
+
+        mac_addr = arp_map.get(target_ip, "02:00:00:00:00:01" if target_ip == "127.0.0.1" else None)
+        if not open_services and not (mac_addr and mac_addr not in ("ff:ff:ff:ff:ff:ff", "00:00:00:00:00:00")):
+            return None
+
+        hostname = None
+        try:
+            hostname = socket.gethostbyaddr(target_ip)[0]
+        except Exception:
+            if target_ip == "127.0.0.1":
+                hostname = "localhost"
+
+        service_banners = [
+            {"name": s.name, "product": s.product, "version": s.version}
+            for s in open_services
+        ]
+        classification = DeviceClassifier.classify(
+            ip_address=target_ip,
+            mac_address=mac_addr,
+            hostname=hostname,
+            open_ports=[s.port for s in open_services],
+            service_banners=service_banners,
+        )
+
+        return DiscoveredHost(
+            ip_address=target_ip,
+            mac_address=mac_addr,
+            hostname=hostname or f"host-{target_ip.replace('.', '-')}",
+            status="up",
+            os_name=classification.device_type,
+            services=open_services,
+        )
+
+    async def _run_native_socket_discovery(
         self,
         scan_id: UUID,
         target_cidr: str,
@@ -224,17 +385,56 @@ class NmapDiscoveryEngine:
         is_cancelled_check: Optional[Callable[[], bool]],
     ) -> EngineScanResult:
         """
-        Deterministic, safe simulated discovery engine for development environments.
-        Generates realistic endpoint telemetry within the target RFC 1918 subnet.
+        Real asynchronous socket & ARP discovery engine.
+        Probes real reachable endpoints and active ports without fabricating fake devices.
         """
-        net = ip_network(target_cidr, strict=False)
-        base_octets = str(net.network_address).rsplit(".", 1)[0]
         now = datetime.utcnow()
+        try:
+            net = ip_network(target_cidr, strict=False)
+        except Exception as e:
+            return EngineScanResult(
+                scan_id=scan_id,
+                status="failed",
+                hosts_discovered=0,
+                hosts=[],
+                started_at=now,
+                completed_at=now,
+                logs=[f"Invalid target CIDR {target_cidr}: {e}"],
+            )
 
         if event_callback:
-            event_callback("discovery_progress", f"Scanning address space {target_cidr} via safe discovery pipeline...")
+            event_callback("discovery_progress", f"Scanning address space {target_cidr} via native asynchronous socket engine...")
 
-        await asyncio.sleep(0.5)
+        arp_map = self._get_arp_table()
+
+        # Identify candidate IP addresses
+        candidate_ips: List[str] = []
+        if net.num_addresses == 1:
+            candidate_ips.append(str(net.network_address))
+        elif net.is_loopback:
+            candidate_ips.append("127.0.0.1")
+        else:
+            # Collect matching IPs from ARP table
+            for arp_ip in arp_map.keys():
+                try:
+                    if ip_address(arp_ip) in net:
+                        candidate_ips.append(arp_ip)
+                except ValueError:
+                    pass
+
+            # Always test subnet gateway (.1) if not present
+            try:
+                gw_ip = str(net.network_address + 1)
+                if gw_ip not in candidate_ips and gw_ip != str(net.broadcast_address):
+                    candidate_ips.insert(0, gw_ip)
+            except Exception:
+                pass
+
+            # Cap candidate list to avoid scan timeouts (max 32 hosts)
+            candidate_ips = candidate_ips[:32]
+
+        if event_callback:
+            event_callback("discovery_progress", f"Identified {len(candidate_ips)} potential targets on {target_cidr}. Probing ports...")
 
         if is_cancelled_check and is_cancelled_check():
             return EngineScanResult(
@@ -247,94 +447,40 @@ class NmapDiscoveryEngine:
                 logs=["Scan was cancelled by operator."],
             )
 
-        simulated_endpoints = [
-            {
-                "ip": f"{base_octets}.1",
-                "mac": "00:1A:2B:44:88:01",
-                "hostname": f"gw-{base_octets.replace('.', '-')}.internal",
-                "ports": [
-                    DiscoveredService(port=80, protocol="tcp", name="http", product="Cisco IOS HTTP Server", version="15.2", state="open"),
-                    DiscoveredService(port=443, protocol="tcp", name="https", product="Cisco SSL-VPN", version="15.2", state="open"),
-                    DiscoveredService(port=22, protocol="tcp", name="ssh", product="Cisco SSH", version="2.0", state="open"),
-                ],
-                "os": "Cisco IOS 15.2",
-            },
-            {
-                "ip": f"{base_octets}.10",
-                "mac": "52:54:00:12:34:56",
-                "hostname": "prod-k8s-node-01.internal",
-                "ports": [
-                    DiscoveredService(port=22, protocol="tcp", name="ssh", product="OpenSSH", version="8.9p1", state="open"),
-                    DiscoveredService(port=6443, protocol="tcp", name="kubernetes-api", product="Kubernetes API", version="1.28", state="open"),
-                    DiscoveredService(port=10250, protocol="tcp", name="kubelet", product="Kubelet", version="1.28", state="open"),
-                ],
-                "os": "Ubuntu 22.04 LTS",
-            },
-            {
-                "ip": f"{base_octets}.25",
-                "mac": "3C:D9:2B:88:99:AA",
-                "hostname": "prn-soc-floor2.internal",
-                "ports": [
-                    DiscoveredService(port=9100, protocol="tcp", name="jetdirect", product="HP JetDirect", version="J8029A", state="open"),
-                    DiscoveredService(port=631, protocol="tcp", name="ipp", product="CUPS IPP", version="2.4", state="open"),
-                    DiscoveredService(port=80, protocol="tcp", name="http", product="HP Embedded Web Server", version="4.0", state="open"),
-                ],
-                "os": "HP Embedded OS",
-            },
-            {
-                "ip": f"{base_octets}.45",
-                "mac": "52:54:00:8F:90:A1",
-                "hostname": "pg-cluster-prod.internal",
-                "ports": [
-                    DiscoveredService(port=22, protocol="tcp", name="ssh", product="OpenSSH", version="9.0p1", state="open"),
-                    DiscoveredService(port=5432, protocol="tcp", name="postgresql", product="PostgreSQL Database Server", version="16.2", state="open"),
-                ],
-                "os": "Debian 12 Bookworm",
-            },
+        # Probe all candidate hosts concurrently
+        host_tasks = [
+            self._probe_host(
+                tip,
+                arp_map,
+                is_active_hint=(tip in arp_map or tip == "127.0.0.1" or tip == "localhost"),
+            )
+            for tip in candidate_ips
         ]
+        host_results = await asyncio.gather(*host_tasks)
+        discovered_hosts = [h for h in host_results if h is not None]
 
-        discovered: List[DiscoveredHost] = []
-        for endp in simulated_endpoints:
-            if is_cancelled_check and is_cancelled_check():
-                break
-
-            classification = DeviceClassifier.classify(
-                ip_address=endp["ip"],
-                mac_address=endp["mac"],
-                hostname=endp["hostname"],
-                open_ports=[p.port for p in endp["ports"]],
-                service_banners=[{"name": p.name, "product": p.product, "version": p.version} for p in endp["ports"]],
-                os_hint=endp["os"],
-            )
-
-            discovered.append(
-                DiscoveredHost(
-                    ip_address=endp["ip"],
-                    mac_address=endp["mac"],
-                    hostname=endp["hostname"],
-                    status="up",
-                    os_name=endp["os"],
-                    services=endp["ports"],
-                )
-            )
-
+        for host in discovered_hosts:
             if event_callback:
                 event_callback(
                     "host_discovered",
-                    f"Identified endpoint: {endp['ip']} ({endp['hostname']}) as {classification.device_type} (Confidence: {classification.confidence}%)",
+                    f"Identified endpoint: {host.ip_address} ({host.hostname}) as {host.os_name} with {len(host.services)} open ports",
                 )
-            await asyncio.sleep(0.2)
 
         if event_callback:
-            event_callback("discovery_completed", f"Discovery sweep finished. {len(discovered)} hosts identified.")
+            event_callback(
+                "discovery_completed",
+                f"Discovery sweep completed. {len(discovered_hosts)} responsive endpoints identified on {target_cidr}."
+            )
 
         return EngineScanResult(
             scan_id=scan_id,
             status="completed",
-            hosts_discovered=len(discovered),
-            hosts=discovered,
+            hosts_discovered=len(discovered_hosts),
+            hosts=discovered_hosts,
             findings_summary={"critical": 0, "high": 0, "medium": 0, "low": 0},
             started_at=now,
             completed_at=datetime.utcnow(),
-            logs=[f"Discovered {len(discovered)} endpoints across subnet {target_cidr}"],
+            logs=[
+                f"Native socket sweep finished on {target_cidr}: {len(discovered_hosts)} responsive hosts found."
+            ],
         )
