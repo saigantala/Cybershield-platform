@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # CyberShield – Intelligent Network Security Monitoring & Vulnerability Assessment Platform
 
 [![Next.js](https://img.shields.io/badge/Next.js-14.2-black)](https://nextjs.org/)
@@ -187,3 +188,6 @@ cd apps/web
 npx tsc --noEmit
 ```
 - **Role-Based Access Control (RBAC)**: Centralized matrix defining Owner, Admin, Analyst, and Viewer permissions with platform admin segregation.
+=======
+# Cybershield-platform
+>>>>>>> 91cbde4085bfe755372ebdb5ae47b9f01633ebbe
