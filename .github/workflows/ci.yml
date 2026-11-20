@@ -96,7 +96,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Build Backend Container
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: ./backend
           file: ./backend/Dockerfile
@@ -104,7 +104,7 @@ jobs:
           tags: cybershield-api:ci-test
 
       - name: Build Web Dashboard Container
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: ./apps/web
           file: ./apps/web/Dockerfile
