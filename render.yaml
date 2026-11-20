@@ -1,0 +1,54 @@
+services:
+  # ─────────────────────────────────────────
+  # 1. BACKEND – FastAPI (Python)
+  # ─────────────────────────────────────────
+  - type: web
+    name: cybershield-api
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/v1/health
+    plan: free
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: "False"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_JWT_SECRET
+        sync: false
+      - key: FASTAPI_ALLOWED_ORIGINS
+        sync: false
+      - key: NVD_API_KEY
+        value: ""
+      - key: REDIS_URL
+        sync: false
+
+  # ─────────────────────────────────────────
+  # 2. FRONTEND – Next.js (Node.js)
+  # ─────────────────────────────────────────
+  - type: web
+    name: cybershield-web
+    runtime: node
+    rootDir: .
+    buildCommand: npm install && npm --workspace=apps/web run build
+    startCommand: npm --workspace=apps/web run start
+    healthCheckPath: /
+    plan: free
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_API_URL
+        sync: false
+      - key: NEXT_PUBLIC_APP_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false

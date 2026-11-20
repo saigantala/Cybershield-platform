@@ -4,8 +4,18 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
-import numpy as np
-from sklearn.ensemble import IsolationForest
+try:
+    import numpy as np
+    from sklearn.ensemble import IsolationForest
+    _ML_AVAILABLE = True
+except ImportError:
+    import logging as _log_tmp
+    _log_tmp.getLogger("cybershield.ai_threat_detection").warning(
+        "scikit-learn / numpy not installed — AI detection falls back to heuristic mode"
+    )
+    np = None  # type: ignore
+    IsolationForest = None  # type: ignore
+    _ML_AVAILABLE = False
 
 from app.schemas.ai_detection import (
     AIDetectionAnalyzeRequest,
@@ -72,8 +82,10 @@ class FeatureExtractor:
         return [0.0 if math.isnan(v) or math.isinf(v) else v for v in vector]
 
     @classmethod
-    def normalize_matrix(cls, matrix: np.ndarray) -> np.ndarray:
+    def normalize_matrix(cls, matrix: Any) -> Any:
         """Min-Max scaler on feature matrix with epsilon stability."""
+        if not _ML_AVAILABLE or np is None:
+            return matrix
         min_vals = matrix.min(axis=0)
         max_vals = matrix.max(axis=0)
         range_vals = np.where((max_vals - min_vals) == 0, 1.0, max_vals - min_vals)
@@ -84,18 +96,21 @@ class MLThreatDetectionEngine:
     """Modular machine learning and statistical anomaly detection engine."""
 
     def __init__(self):
-        # Default Isolation Forest instance for network behavioral anomaly detection
-        # Clearly flagged: pre-trained baseline model with synthetic security benchmark calibration
-        self.iso_forest = IsolationForest(
-            n_estimators=100,
-            contamination=0.08,
-            random_state=42,
-        )
-        self._fit_default_baseline()
+        self._ml_ready = _ML_AVAILABLE and IsolationForest is not None
+        if self._ml_ready:
+            self.iso_forest = IsolationForest(
+                n_estimators=100,
+                contamination=0.08,
+                random_state=42,
+            )
+            self._fit_default_baseline()
+        else:
+            self.iso_forest = None
 
     def _fit_default_baseline(self):
         """Initializes IsolationForest on reference telemetry feature matrix."""
-        # Baseline reference data representing typical enterprise node telemetry
+        if not self._ml_ready or np is None:
+            return
         np.random.seed(42)
         normal_samples = np.random.normal(loc=[120, 450000, 12, 5, 2, 1.2, 2.0, 0], scale=[30, 80000, 3, 2, 1, 0.2, 0.5, 0.5], size=(200, 8))
         normal_samples = np.clip(normal_samples, a_min=0, a_max=None)
@@ -103,23 +118,27 @@ class MLThreatDetectionEngine:
 
     def predict_anomaly(self, vector: List[float]) -> Tuple[bool, float, float]:
         """
-        Executes Isolation Forest inference.
+        Executes Isolation Forest inference, or heuristic fallback.
         Returns:
-            is_anomaly: bool (-1 from Isolation Forest)
-            anomaly_score: float normalized [0.0, 1.0] (higher is more anomalous)
+            is_anomaly: bool
+            anomaly_score: float normalized [0.0, 1.0]
             confidence_score: float [0.0, 1.0]
         """
-        X = np.array([vector])
-        raw_pred = self.iso_forest.predict(X)[0]
-        raw_score = self.iso_forest.score_samples(X)[0]  # typically in [-0.8, -0.2]
-        
-        # Calibrate raw score into [0.0, 1.0] range where 1.0 is extreme anomaly
-        calibrated_anomaly = float(np.clip(-raw_score * 1.5, 0.0, 1.0))
-        is_anom = bool(raw_pred == -1 or calibrated_anomaly > 0.65)
-        
-        # Model confidence increases as anomaly score deviates from decision boundary
-        confidence = float(np.clip(0.70 + abs(calibrated_anomaly - 0.5) * 0.5, 0.50, 0.98))
-        return is_anom, round(calibrated_anomaly, 4), round(confidence, 4)
+        if self._ml_ready and self.iso_forest is not None and np is not None:
+            X = np.array([vector])
+            raw_pred = self.iso_forest.predict(X)[0]
+            raw_score = self.iso_forest.score_samples(X)[0]
+            calibrated_anomaly = float(np.clip(-raw_score * 1.5, 0.0, 1.0))
+            is_anom = bool(raw_pred == -1 or calibrated_anomaly > 0.65)
+            confidence = float(np.clip(0.70 + abs(calibrated_anomaly - 0.5) * 0.5, 0.50, 0.98))
+            return is_anom, round(calibrated_anomaly, 4), round(confidence, 4)
+        # Heuristic fallback: score based on failed connections and failed auth
+        conns, bytes_tx, dst_ips, dst_ports, failed_conns, entropy, freq, failed_auth = (
+            vector + [0.0] * (8 - len(vector))
+        )[:8]
+        heuristic_score = min(1.0, (failed_conns / 50.0 + failed_auth / 20.0 + max(0, entropy - 1.5) * 0.3))
+        is_anom = heuristic_score > 0.5
+        return is_anom, round(heuristic_score, 4), 0.65
 
 
 class AIThreatService:

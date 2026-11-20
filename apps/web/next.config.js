@@ -1,5 +1,18 @@
 /** @type {import('next').NextConfig} */
+
+// Resolve the backend API origin for CSP (works for both dev & Render production)
+const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+const apiOrigin = (() => {
+  try {
+    const u = new URL(apiUrl);
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return 'http://localhost:8000';
+  }
+})();
+
 const nextConfig = {
+
   reactStrictMode: true,
   poweredByHeader: false,
   compress: true,
@@ -61,7 +74,7 @@ const nextConfig = {
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: https: blob:",
               "font-src 'self' data:",
-              "connect-src 'self' http://localhost:8000 http://127.0.0.1:8000 https://*.supabase.co wss://*.supabase.co",
+              `connect-src 'self' ${apiOrigin} http://localhost:8000 http://127.0.0.1:8000 https://*.supabase.co wss://*.supabase.co`,
               "frame-ancestors 'none'",
               "object-src 'none'",
               "base-uri 'self'",
