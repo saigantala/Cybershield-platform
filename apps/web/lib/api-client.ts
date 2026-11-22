@@ -149,8 +149,11 @@ import type {
 } from "@/types/security-assurance";
 import type { EnterpriseReleaseOverview } from "@/types/release-readiness";
 
-const API_BASE_URL =
+const rawApiUrl =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+const API_BASE_URL = rawApiUrl.endsWith("/api/v1")
+  ? rawApiUrl
+  : `${rawApiUrl.replace(/\/+$/, "")}/api/v1`;
 
 export interface ApiResponse<T> {
   data: T | null;
@@ -171,7 +174,7 @@ export interface BackendHealth {
 export async function getBackendHealth(): Promise<BackendHealth> {
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3000);
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
 
     const res = await fetch(`${API_BASE_URL}/health`, {
       method: "GET",
@@ -226,9 +229,9 @@ export async function apiFetch<T>(
     headers["Authorization"] = `Bearer ${bearerToken}`;
   }
 
-  // 3. Timeout handler (8 seconds)
+  // 3. Timeout handler (30 seconds for cloud cold-start resilience)
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 8000);
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
 
   try {
     const res = await fetch(url, {
@@ -254,13 +257,13 @@ export async function apiFetch<T>(
     if (err.name === "AbortError") {
       return {
         data: null,
-        error: "CyberShield Security Gateway request timed out.",
+        error: `CyberShield Security Gateway request timed out (${API_BASE_URL}). The server may be waking up from sleep.`,
         isOffline: true,
       };
     }
     return {
       data: null,
-      error: "FastAPI security backend is currently unreachable.",
+      error: `FastAPI security backend is unreachable at ${API_BASE_URL}.`,
       isOffline: true,
     };
   }

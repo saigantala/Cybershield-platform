@@ -74,7 +74,7 @@ const nextConfig = {
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: https: blob:",
               "font-src 'self' data:",
-              `connect-src 'self' ${apiOrigin} http://localhost:8000 http://127.0.0.1:8000 https://*.supabase.co wss://*.supabase.co`,
+              `connect-src 'self' ${apiOrigin} https://*.onrender.com wss://*.onrender.com http://localhost:8000 http://127.0.0.1:8000 https://*.supabase.co wss://*.supabase.co`,
               "frame-ancestors 'none'",
               "object-src 'none'",
               "base-uri 'self'",
