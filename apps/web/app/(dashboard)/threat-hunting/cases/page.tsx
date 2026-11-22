@@ -1,7 +1,7 @@
 "use client";
 export const dynamic = 'force-dynamic';
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
@@ -26,7 +26,7 @@ import type {
   ThreatHuntingPriority,
 } from "@/types/threat-hunting";
 
-export default function ThreatHuntingCasesPage() {
+function ThreatHuntingCasesContent() {
   const searchParams = useSearchParams();
   const [cases, setCases] = useState<ThreatHuntingCase[]>([]);
   const [loading, setLoading] = useState(true);
@@ -369,5 +369,13 @@ export default function ThreatHuntingCasesPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function ThreatHuntingCasesPage() {
+  return (
+    <Suspense fallback={null}>
+      <ThreatHuntingCasesContent />
+    </Suspense>
   );
 }

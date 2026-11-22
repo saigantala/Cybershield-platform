@@ -1,8 +1,7 @@
 "use client";
 export const dynamic = 'force-dynamic';
-export const dynamic = 'force-dynamic';
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -32,7 +31,7 @@ import type {
   EvidenceCategory,
 } from "@/types/forensics";
 
-export default function ForensicEvidenceVaultPage() {
+function ForensicEvidenceVaultContent() {
   const searchParams = useSearchParams();
   const verifyParam = searchParams.get("verify");
 
@@ -528,5 +527,13 @@ export default function ForensicEvidenceVaultPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function ForensicEvidenceVaultPage() {
+  return (
+    <Suspense fallback={null}>
+      <ForensicEvidenceVaultContent />
+    </Suspense>
   );
 }

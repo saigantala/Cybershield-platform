@@ -1,8 +1,7 @@
 "use client";
 export const dynamic = 'force-dynamic';
-export const dynamic = 'force-dynamic';
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
@@ -25,7 +24,7 @@ import {
 import { apiCompliance } from "@/lib/api-client";
 import type { AssessmentStatus, ComplianceControl } from "@/types/compliance";
 
-export default function ComplianceAssessmentsPage() {
+function ComplianceAssessmentsContent() {
   const searchParams = useSearchParams();
   const initialFramework = searchParams.get("framework") || "all";
 
@@ -436,5 +435,13 @@ export default function ComplianceAssessmentsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function ComplianceAssessmentsPage() {
+  return (
+    <Suspense fallback={null}>
+      <ComplianceAssessmentsContent />
+    </Suspense>
   );
 }

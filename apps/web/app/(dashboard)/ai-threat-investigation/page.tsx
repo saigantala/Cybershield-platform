@@ -1,8 +1,7 @@
 "use client";
 export const dynamic = 'force-dynamic';
-export const dynamic = 'force-dynamic';
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -31,7 +30,7 @@ interface ChatMessage {
   timestamp: string;
 }
 
-export default function AIThreatInvestigationPage() {
+function AIThreatInvestigationContent() {
   const searchParams = useSearchParams();
   const detectionId = searchParams.get("detection_id") || undefined;
 
@@ -261,5 +260,13 @@ export default function AIThreatInvestigationPage() {
         </button>
       </div>
     </div>
+  );
+}
+
+export default function AIThreatInvestigationPage() {
+  return (
+    <Suspense fallback={null}>
+      <AIThreatInvestigationContent />
+    </Suspense>
   );
 }

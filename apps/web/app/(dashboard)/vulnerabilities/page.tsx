@@ -1091,8 +1091,8 @@ export default function VulnerabilitiesPage() {
                     overview.top_affected_assets.length > 0
                       ? overview.top_affected_assets
                       : [
-                          { asset_name: "EDGE-FIREWALL", total: 2, critical: 1 },
-                          { asset_name: "POSTGRES-PRIMARY", total: 2, critical: 0 },
+                          { asset_id: "mock-1", asset_name: "EDGE-FIREWALL", asset_ip: "10.0.0.1", total: 2, critical: 1, high: 1 },
+                          { asset_id: "mock-2", asset_name: "POSTGRES-PRIMARY", asset_ip: "10.0.0.2", total: 2, critical: 0, high: 2 },
                         ]
                   }
                   layout="vertical"

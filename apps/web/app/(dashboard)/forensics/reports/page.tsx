@@ -1,8 +1,7 @@
 "use client";
 export const dynamic = 'force-dynamic';
-export const dynamic = 'force-dynamic';
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -27,7 +26,7 @@ import type {
   ForensicCase,
 } from "@/types/forensics";
 
-export default function ForensicReportsPage() {
+function ForensicReportsContent() {
   const searchParams = useSearchParams();
   const reportIdParam = searchParams.get("id");
 
@@ -526,5 +525,13 @@ export default function ForensicReportsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function ForensicReportsPage() {
+  return (
+    <Suspense fallback={null}>
+      <ForensicReportsContent />
+    </Suspense>
   );
 }
