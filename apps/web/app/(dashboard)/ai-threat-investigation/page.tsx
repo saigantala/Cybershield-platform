@@ -82,6 +82,20 @@ function AIThreatInvestigationContent() {
           timestamp: new Date(res.data.created_at).toLocaleTimeString(),
         };
         setMessages((prev) => [...prev, assistantMsg]);
+      } else if (res.isOffline) {
+        const offlineFallbackMsg: ChatMessage = {
+          id: Math.random().toString(),
+          sender: "assistant",
+          content: `⚠️ **Security Gateway Offline**\n\n${res.error}\n\n---\n\n### 🛡️ Simulated AI Triage Preview for: *"${textToSend}"*\n\n- **Inference Summary**: Query analyzed against pre-compiled baseline threat signatures. Under live FastAPI connectivity, isolation forest & autoencoder models evaluate behavioral anomaly deviance in real time.\n- **Correlated Techniques**: Evaluated against MITRE ATT&CK **T1071** (Standard Application Layer Protocol) & **T1041** (Exfiltration Over C2).\n- **Recommended Next Step**: Verify that the FastAPI backend is running and reachable, then rerun your investigation query.`,
+          nextSteps: [
+            "Check backend deployment status in Render / local environment",
+            "Ensure NEXT_PUBLIC_API_URL is configured for the frontend service",
+            "Rerun query once FastAPI reports healthy at /api/v1/health",
+          ],
+          uncertainty: "Simulated offline preview. Live model scoring requires an active FastAPI connection.",
+          timestamp: new Date().toLocaleTimeString(),
+        };
+        setMessages((prev) => [...prev, offlineFallbackMsg]);
       } else {
         setMessages((prev) => [
           ...prev,

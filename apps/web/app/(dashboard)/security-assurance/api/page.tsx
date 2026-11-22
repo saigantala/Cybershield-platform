@@ -21,7 +21,10 @@ import { SecurityAssuranceNav } from "@/components/security-assurance/SecurityAs
 import { ErrorBoundary } from "@/components/common/ErrorBoundary";
 
 export default function ApiSecurityPage() {
-  const [targetHost, setTargetHost] = useState("http://localhost:8000");
+  const defaultTargetHost =
+    process.env.NEXT_PUBLIC_API_URL?.replace(/\/api\/v1\/?$/, "") ||
+    "http://localhost:8000";
+  const [targetHost, setTargetHost] = useState(defaultTargetHost);
   const [includeFuzzing, setIncludeFuzzing] = useState(true);
   const [testRuns, setTestRuns] = useState<SecurityTestRun[]>([]);
   const [latestRun, setLatestRun] = useState<SecurityTestRun | null>(null);

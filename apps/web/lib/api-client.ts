@@ -261,9 +261,23 @@ export async function apiFetch<T>(
         isOffline: true,
       };
     }
+
+    const isRemoteHostWithLocalApi =
+      typeof window !== "undefined" &&
+      window.location.hostname !== "localhost" &&
+      window.location.hostname !== "127.0.0.1" &&
+      API_BASE_URL.includes("localhost");
+
+    let errorMsg = `FastAPI security backend is unreachable at ${API_BASE_URL}.`;
+    if (isRemoteHostWithLocalApi) {
+      errorMsg = `FastAPI backend is unreachable at ${API_BASE_URL}. The frontend is running on '${window.location.hostname}', but NEXT_PUBLIC_API_URL was not provided at build time and defaulted to localhost. In your Render Dashboard, add NEXT_PUBLIC_API_URL pointing to your backend (e.g. https://<api-name>.onrender.com/api/v1) and redeploy with 'Clear build cache & deploy'.`;
+    } else if (API_BASE_URL.includes("localhost")) {
+      errorMsg = `FastAPI security backend is unreachable at ${API_BASE_URL}. If running locally, make sure the FastAPI server is running (e.g. 'uvicorn app.main:app --port 8000').`;
+    }
+
     return {
       data: null,
-      error: `FastAPI security backend is unreachable at ${API_BASE_URL}.`,
+      error: errorMsg,
       isOffline: true,
     };
   }
